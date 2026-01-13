@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:15-15-alpine
+    container_name: dba_postgres
+    restart: always
+    environment:
+      - POSTGRES_USER: dba
+      - POSTGRES_PASSWORD: dba123
+      - POSTGRES_DB: labdb
+    posts:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: dba_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@lab.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - '8080:80'
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:

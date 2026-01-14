@@ -1,13 +1,13 @@
 services:
   postgres:
-    image: postgres:15-15-alpine
+    image: postgres:15-alpine
     container_name: dba_postgres
     restart: always
     environment:
-      - POSTGRES_USER: dba
-      - POSTGRES_PASSWORD: dba123
-      - POSTGRES_DB: labdb
-    posts:
+      POSTGRES_USER: dba
+      POSTGRES_PASSWORD: dba123
+      POSTGRES_DB: labdb
+    ports:
       - '5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data

@@ -26,7 +26,7 @@
 - Obs.: Cada linha do banco tem compos que não vemos, mas o que o MVCC usa para organizar.
   - xmin: O ID da transação que criou aquela linha.
   - xmax: O ID da transação que deletou ou alterou aquela linha.
-  - Se rodar o SELECT xmin, xmax, * FROM sua_tabela, podemorá ver esses IDS.
+  - Se rodar o SELECT xmin, xmax, * FROM sua_tabela, poderá ver esses IDS.
   
 # 🔒 Locks e 🧹 Autovacuum
 
@@ -125,3 +125,109 @@ Se autovacuum estiver desabilitado, o banco pode começar a:
  | 40 | transactionid | ExclusiveLock    | t |
  | 47 | transactionid | ExclusiveLock    | t |
  | 47 | tuple         | ExclusiveLock    | t |
+
+ ## 🧵 1. O que cada PID significa?
+ - ### PID 40 e PID 47
+   -  Estão fazendo operações de escrita (UPDATE/INSERT/DELETE), porque possuem RowExclusiveLock, ExclusiveLock e até tuple-level lock.
+-  ### PID 67
+   -  Está fazendo uma leitura (SELECT), pois possui AccessShareLock.
+
+## 🔍 2. Explicando cada lock de forma simples
+
+### 🔵 AccessShareLock (t)
+```
+  Quem: PID 67
+  O que significa:
+  Esse é o lock mais leve do PostgreSQL — ocorre quando você faz um SELECT.
+  Ele não bloqueia escrita e é totalmente normal.
+```
+
+### 🟡 RowExclusiveLock (t)
+```
+Quem: PID 40 e 47
+Causa:
+  Criado por operações como:
+  INSERT
+  UPDATE
+  DELETE
+```
+Esse lock impede outras transações de alterarem a mesma tabela, mas não impede SELECTs.
+
+### 🔴 tuple | ExclusiveLock (t)
+```
+Quem: PID 47
+Causa:
+Esse é o lock por linha (row-level), gerado por:
+
+UPDATE tabela WHERE id = ...
+```
+Ou seja, uma linha específica está travada por um UPDATE ativo.
+
+### 🟣 transactionid | ShareLock (f)
+```
+Quem: PID 47
+O que significa:
+Esse lock não foi concedido (granted = f).
+Isso é um indício de que PID 47 está ESPERANDO outro processo liberar um lock.
+```
+Ou seja, existe espera de lock (lock contention).
+
+
+## 🔥 Qual é o provável cenário?
+### 📌 PID 40 e PID 47 estão fazendo escritas em tabelas possivelmente iguais.
+### 📌 PID 47 está preso esperando um lock que ainda não foi liberado por outro processo.
+
+### Isso costuma acontecer quando:
+ - Uma transação começou (BEGIN) mas ainda não deu COMMIT
+ - Um UPDATE está preso aguardando outra transação terminar
+ - A aplicação deixou uma transação aberta sem querer
+
+# 🧭 Como investigar melhor
+## Ver quem são esses PIDs e suas queries:
+```sql
+SELECT pid, state, query 
+FROM pg_stat_activity 
+WHERE pid IN (40, 47, 67);
+
+```
+## Ver qual tabela o lock está atingindo:
+```sql
+
+SELECT 
+    pid, 
+    relation::regclass AS tabela, 
+    mode,
+    granted
+FROM pg_locks
+WHERE pid IN (40, 47, 67)
+AND relation IS NOT NULL;
+
+
+```
+## Ver quem está BLOQUEANDO quem:
+```sql
+
+SELECT
+  blocked.pid  AS pid_bloqueado,
+  blocked.state AS estado_bloqueado,
+  blocked.query AS query_bloqueada,
+  blocker.pid  AS pid_bloqueador,
+  blocker.state AS estado_bloqueador,
+  blocker.query AS query_bloqueadora
+FROM pg_stat_activity AS blocked
+JOIN pg_stat_activity AS blocker
+  ON blocker.pid = ANY (pg_blocking_pids(blocked.pid))
+ORDER BY blocked.pid;
+
+```
+## Esse comando é ouro — mostra claramente:
+
+- quem está travando
+- quem está sendo travado
+- e qual é a query que causou o bloqueio
+
+# 🚑 Se quiser matar o processo que está travando tudo
+```sql
+  SELECT pg_terminate_backend( PID );
+```
+### ⚠️ Cuidado: isso cancela a transação e desfaz o que ela estava fazendo.

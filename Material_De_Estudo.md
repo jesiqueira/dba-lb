@@ -231,3 +231,55 @@ ORDER BY blocked.pid;
   SELECT pg_terminate_backend( PID );
 ```
 ### ⚠️ Cuidado: isso cancela a transação e desfaz o que ela estava fazendo.
+
+# 🧪 Deadlock
+
+
+## 📋 Descrição do Problema
+Ocorreu um erro de **Deadlock (Impasse)** detectado pelo PostgreSQL. Esse erro acontece quando dois ou mais processos detêm travas (locks) em recursos diferentes e cada um tenta adquirir uma trava no recurso que o outro processo já possui.
+
+### Log de Erro
+> **ERROR:** deadlock detected  
+> **DETAIL:** Process 385 waits for ShareLock on transaction 745; blocked by process 61.  
+> Process 61 waits for ShareLock on transaction 746; blocked by process 385.  
+> **CONTEXT:** while updating tuple (934,64) in relation "usuarios"
+
+---
+
+## 🛠️ O que aconteceu? (Cenário de Exemplo)
+
+O banco de dados interrompeu o **Processo 385** para permitir que o **Processo 61** continuasse, evitando um travamento infinito. O fluxo lógico que gerou o erro foi:
+
+| Passo | Transação A (Processo 385) | Transação B (Processo 61) |
+| :--- | :--- | :--- |
+| 1 | Inicia e bloqueia o **Usuário ID: 1** | Inicia e bloqueia o **Usuário ID: 2** |
+| 2 | Tenta bloquear o **Usuário ID: 2** | Tenta bloquear o **Usuário ID: 1** |
+| 3 | **AGUARDANDO...** (esperando Proc 61) | **AGUARDANDO...** (esperando Proc 385) |
+| 4 | **CANCELADO PELO BANCO** | **EXECUÇÃO CONTINUA** |
+
+
+
+---
+
+## 🔍 Causas Comuns
+1. **Ordem Inconsistente:** Processos que atualizam os mesmos registros em ordens diferentes (ex: A->B e B->A).
+2. **Transações Longas:** Muitas operações entre o início e o fim da transação, segurando travas por muito tempo.
+3. **Falta de Índices:** Pode forçar o banco a travar mais linhas do que o necessário (Sequential Scan) para encontrar o registro.
+
+---
+
+## ✅ Como Prevenir
+
+1. **Padronização de Ordem:** Garantir que todos os processos atualizem registros seguindo sempre a mesma lógica (ex: sempre ordenar os IDs em ordem crescente antes de fazer o UPDATE).
+2. **Atomicidade:** Realizar apenas as operações necessárias dentro de `BEGIN` e `COMMIT`.
+3. **Retry Logic:** Implementar na camada da aplicação um mecanismo de tentativa (retry) caso o erro de deadlock ocorra.
+4. **Select For Update:** Usar o `SELECT ... FOR UPDATE` com cautela e, se possível, com a cláusula `SKIP LOCKED` ou `NOWAIT` para evitar filas de espera.
+
+---
+
+## 📝 Comandos Úteis para Investigação
+Para monitorar travas em tempo real:
+```sql
+SELECT * FROM pg_locks l 
+JOIN pg_stat_activity a ON l.pid = a.pid 
+WHERE NOT l.granted;

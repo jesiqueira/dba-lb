@@ -234,9 +234,19 @@ ORDER BY blocked.pid;
 
 # 🧪 Deadlock
 
+## 🔥 O QUE É UM DEADLOCK?
 
-## 📋 Descrição do Problema
-Ocorreu um erro de **Deadlock (Impasse)** detectado pelo PostgreSQL. Esse erro acontece quando dois ou mais processos detêm travas (locks) em recursos diferentes e cada um tenta adquirir uma trava no recurso que o outro processo já possui.
+Um deadlock ocorre quando duas (ou mais) transações ficam esperando uma à outra, formando um ciclo de dependências impossível de resolver.
+### ➡️ Cada transação segura um lock que a outra precisa.
+### ➡️ E nenhuma consegue continuar.
+
+
+<h4>Como consequência:</h4>
+
+- Nenhuma transação consegue prosseguir
+- O PostgreSQL detecta automaticamente o deadlock
+- Ele mata uma transação com erro:
+
 
 ### Log de Erro
 > **ERROR:** deadlock detected  
@@ -256,7 +266,6 @@ O banco de dados interrompeu o **Processo 385** para permitir que o **Processo 6
 | 2 | Tenta bloquear o **Usuário ID: 2** | Tenta bloquear o **Usuário ID: 1** |
 | 3 | **AGUARDANDO...** (esperando Proc 61) | **AGUARDANDO...** (esperando Proc 385) |
 | 4 | **CANCELADO PELO BANCO** | **EXECUÇÃO CONTINUA** |
-
 
 
 ---

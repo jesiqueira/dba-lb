@@ -247,7 +247,60 @@ Um deadlock ocorre quando duas (ou mais) transações ficam esperando uma à out
 - O PostgreSQL detecta automaticamente o deadlock
 - Ele mata uma transação com erro:
 
+## 🎯 EXEMPLO PRÁTICO (O MAIS CLÁSSICO EM POSTGRES)
+Imagine duas linhas em uma tabela de usuários:
 
+- Transação A atualiza linha 1, depois tenta atualizar linha 2
+- Transação B atualiza linha 2, depois tenta atualizar linha 1
+
+### Sessão A
+```sql
+
+BEGIN;
+
+UPDATE usuarios SET nome = 'A1' WHERE id = 1;
+-- trava linha 1
+
+UPDATE usuarios SET nome = 'A2' WHERE id = 2;
+-- fica esperando linha 2, porque a sessão B já a travou
+
+```
+
+### Sessão B
+```sql
+
+BEGIN;
+
+UPDATE usuarios SET nome = 'B1' WHERE id = 2;
+-- trava linha 2
+
+UPDATE usuarios SET nome = 'B2' WHERE id = 1;
+-- fica esperando linha 1, porque a sessão A já a travou
+
+```
+Formou o ciclo:
+ - A espera B
+ - B espera A
+
+###  ➡️ Isso é um deadlock.
+
+### 🧠 QUAL A DIFERENÇA ENTRE LOCK E DEADLOCK?
+
+| Situação | O que Acontece |
+| ---------| ---------------|
+| 🔒 Lock normal | Uma transação espera a outra terminar. Natural. |
+| 🔥 Deadlock | Nenhuma pode continuar. Estão esperando recursos uma da outra. Nunca vai destravar sozinho.| 
+---
+
+### 🧠 COMO O POSTGRES DETECTA DEADLOCK?
+O PostgreSQL tem um deadlock detector que roda periodicamente.
+Quando ele percebe que existe um ciclo de espera, ele:
+- 1️⃣ Identifica as transações envolvidas
+- 2️⃣ Escolhe uma para cancelar
+- 3️⃣ Libera os locks
+- 4️⃣ Permite que a outra continue
+  
+A transação cancelada recebe:
 ### Log de Erro
 > **ERROR:** deadlock detected  
 > **DETAIL:** Process 385 waits for ShareLock on transaction 745; blocked by process 61.  
@@ -286,9 +339,54 @@ O banco de dados interrompeu o **Processo 385** para permitir que o **Processo 6
 
 ---
 
+## 🔧 COMO INVESTIGAR DEADLOCKS DE VERDADE
+
+PostgreSQL registra no log.
+
+Para ver detalhes no psql:
+
+### Mostrar quem está esperando por quem:
+```sql
+
+SELECT
+  blocked.pid AS pid_bloqueado,
+  blocked.query AS query_bloqueada,
+  blocker.pid AS pid_bloqueador,
+  blocker.query AS query_bloqueadora
+FROM pg_stat_activity blocked
+JOIN LATERAL unnest(pg_blocking_pids(blocked.pid)) AS p(blocking_pid) ON TRUE
+JOIN pg_stat_activity blocker ON blocker.pid = p.blocking_pid;
+
+-- Esse comando já usamos e funciona para deadlock antes do cancelamento.
+
+```
+
 ## 📝 Comandos Úteis para Investigação
 Para monitorar travas em tempo real:
 ```sql
 SELECT * FROM pg_locks l 
 JOIN pg_stat_activity a ON l.pid = a.pid 
 WHERE NOT l.granted;
+```
+## 🛡️ COMO EVITAR DEADLOCKS (DICAS DE OURO)
+
+### ✔ 1. Atualize linhas SEMPRE NA MESMA ORDEM
+Deadlocks quase sempre vêm disso.
+
+Exemplo:
+```sql
+UPDATE tabela SET ... WHERE id IN (1, 2) ORDER BY id;
+```
+
+### ✔ 2. Mantenha transações curtas
+- Evita “guardar” locks por tempo demais.
+
+### ✔ 3. Evite SELECT ... FOR UPDATE desnecessário
+- Isso cria locks que podem causar ciclo.
+
+### ✔ 4. Use índices eficientes
+- Quanto mais rápido localizar a linha, menos tempo segurando locks.
+
+### ✔ 5. Evite “idle in transaction”
+- Esse é o maior causador de bloqueios, e você viu isso AO VIVO no seu teste anterior.
+
